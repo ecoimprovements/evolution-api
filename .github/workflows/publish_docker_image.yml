@@ -1,12 +1,15 @@
 name: Build Docker image
 
+# Manual only. Publishing is deliberately unavailable in forks.
 on:
-  push:
-    tags:
-      - "*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build_deploy:
+    if: github.repository == 'evolution-foundation/evolution-api'
     name: Build and Deploy
     runs-on: ubuntu-latest
     permissions:
