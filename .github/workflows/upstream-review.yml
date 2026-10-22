@@ -30,8 +30,12 @@ jobs:
             const upstreamOwner = 'evolution-foundation';
             const base = 'main';
             const head = `${upstreamOwner}:main`;
+            const { data: upstreamBranch } = await github.rest.repos.getBranch({
+              owner: upstreamOwner, repo, branch: 'main',
+            });
+            const upstreamSha = upstreamBranch.commit.sha;
             const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
-              owner, repo, basehead: `${owner}:${base}...${head}`,
+              owner, repo, basehead: `${owner}:${base}...${upstreamSha}`,
             });
             if (comparison.ahead_by === 0) {
               core.info('No unmerged upstream commits; nothing to propose.');
@@ -44,7 +48,6 @@ jobs:
               core.info(`Existing upstream review: ${existing[0].html_url}`);
               return;
             }
-            const upstreamSha = comparison.head_commit.sha;
             // Respect rejection of this exact upstream head; retry when upstream advances.
             const closed = await github.paginate(github.rest.pulls.list, {
               owner, repo, state: 'closed', base, head, per_page: 100,
