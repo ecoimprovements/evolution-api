@@ -1,0 +1,78 @@
+name: Review upstream updates
+
+on:
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+
+# No contents write, registry credentials, server credentials, or deployment rights.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: upstream-review
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: github.repository == 'ecoimprovements/evolution-api' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No checkout: never execute upstream files with this job's PR write token.
+      - name: Compare upstream and open a review PR
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const upstreamOwner = 'evolution-foundation';
+            const base = 'main';
+            const head = `${upstreamOwner}:main`;
+            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${owner}:${base}...${head}`,
+            });
+            if (comparison.ahead_by === 0) {
+              core.info('No unmerged upstream commits; nothing to propose.');
+              return;
+            }
+            const existing = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', base, head, per_page: 100,
+            });
+            if (existing.length) {
+              core.info(`Existing upstream review: ${existing[0].html_url}`);
+              return;
+            }
+            const upstreamSha = comparison.head_commit.sha;
+            // Respect rejection of this exact upstream head; retry when upstream advances.
+            const closed = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'closed', base, head, per_page: 100,
+            });
+            if (closed.some(pr => !pr.merged_at && pr.head.sha === upstreamSha)) {
+              core.info('This upstream head was already closed without merging; reopen it manually if wanted.');
+              return;
+            }
+            const body = [
+              'Upstream changes are available for human review. No merge, publication or deployment is performed.',
+              '',
+              `Upstream head when opened: \`${upstreamSha}\``,
+              `Compare: https://github.com/${owner}/${repo}/compare/${owner}:${base}...${head}`,
+              '',
+              'The upstream main branch can move while this PR is open. Recheck the current head and rerun checks after every update.',
+              '',
+              '- [ ] Review the complete diff, especially .github/workflows, Docker, dependencies, submodules and database migrations.',
+              '- [ ] Keep all fork publishing guards and the review-only sync policy; resolve conflicts manually.',
+              '- [ ] Approve workflow runs if requested; confirm lint, Prisma generation, build and security checks pass for the current head.',
+              '- [ ] Validate the proposed merge in isolated staging with a real test WhatsApp instance and Eco Expert Suite.',
+              '- [ ] Record migration, backup, immutable image digest and rollback evidence in this PR.',
+              '- [ ] Human approval and manual merge only. Production deployment is a separate manual action.',
+              '',
+              'See docs/UPSTREAM_UPDATES.md for activation, branch protection and release steps.',
+            ].join('\n');
+            const { data: pr } = await github.rest.pulls.create({
+              owner, repo, base, head, head_repo: repo,
+              title: 'chore(upstream): review Evolution API updates',
+              body, draft: true, maintainer_can_modify: false,
+            });
+            core.info(`Created draft upstream review: ${pr.html_url}`);
