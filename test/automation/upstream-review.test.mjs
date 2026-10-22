@@ -11,10 +11,15 @@ async function simulate({ ahead = 0, open = [], closed = [], compareError = fals
   const lists = [];
   const github = {
     rest: {
-      repos: { compareCommitsWithBasehead: async args => {
-        assert.equal(args.basehead, 'ecoimprovements:main...evolution-foundation:main');
+      repos: {
+        getBranch: async args => {
+          assert.deepEqual(args, { owner: 'evolution-foundation', repo: 'evolution-api', branch: 'main' });
+          return { data: { commit: { sha: 'new-head' } } };
+        },
+        compareCommitsWithBasehead: async args => {
+        assert.equal(args.basehead, 'ecoimprovements:main...new-head');
         if (compareError) throw new Error('comparison unavailable');
-        return { data: { ahead_by: ahead, head_commit: { sha: 'new-head' } } };
+        return { data: { ahead_by: ahead } };
       } },
       pulls: {
         list: () => {},
